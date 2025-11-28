@@ -1,0 +1,7 @@
+agilerl>=2.3.5
+gymnasium>=1.2.1
+imageio>=2.37.0
+matplotlib>=3.9.4
+mpe2>=0.0.1
+pettingzoo[mpe]>=1.25.0
+pillow>=12.0.0
