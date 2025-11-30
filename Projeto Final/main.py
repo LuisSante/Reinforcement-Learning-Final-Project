@@ -178,7 +178,7 @@ if __name__ == "__main__":
                         idx_step % learn_step == 0
                         and len(memory) >= agent.batch_size
                         and memory.counter > learning_delay
-                    ):
+                    ):  
                         experiences = memory.sample(
                             agent.batch_size
                         )  # Sample replay buffer
