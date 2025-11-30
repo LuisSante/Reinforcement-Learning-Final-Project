@@ -11,8 +11,7 @@ import pandas as pd # Importar pandas para el promedio móvil
 from pettingzoo.mpe import simple_speaker_listener_v4
 from mpe2 import simple_speaker_listener_v4
 
-# Cambiar la importación del algoritmo
-from agilerl.algorithms import MADDPG # <--- NUEVO ALGORITMO
+from agilerl.algorithms import MADDPG
 from agilerl.algorithms.core.registry import HyperparameterConfig, RLParameter
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from agilerl.hpo.mutation import Mutations
@@ -23,13 +22,8 @@ from agilerl.utils.utils import (
     make_multi_agent_vect_envs,
 )
 
-# Función para suavizar las puntuaciones con un promedio móvil
 def smooth_scores(scores, window=50):
-    """Calcula el promedio móvil de una lista de puntuaciones."""
-    # Convertir a Series de pandas para usar la función rolling().mean()
     scores_series = pd.Series(scores)
-    # Calcular el promedio móvil, rellenando los primeros valores con los valores originales
-    # hasta que haya suficientes puntos para el tamaño de la ventana.
     smoothed = scores_series.rolling(window=window, min_periods=1).mean().tolist()
     return smoothed
 
@@ -37,8 +31,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("===== AgileRL Online Multi-Agent Demo =====")
 
-    # Define the network configuration
-    # Aumentada capacidad de la red para una mejor aproximación de funciones
     NET_CONFIG = {
         "latent_dim": 128,  # Aumentado de 64 para mejor aprendizaje de representación
         "encoder_config": {
@@ -50,10 +42,9 @@ if __name__ == "__main__":
     }
 
     # Define the initial hyperparameters
-    # Optimizado para un mejor rendimiento en el entorno Speaker-Listener
     INIT_HP = {
         "POPULATION_SIZE": 4,
-        "ALGO": "MADDPG",  # <--- NUEVO ALGORITMO
+        "ALGO": "MADDPG",
         "BATCH_SIZE": 256,  # Aumentado de 128 para estimaciones de gradiente más estables
         "EXPL_NOISE": 0.1,  # Reducido para MADDPG/TD3-like
         "LR_ACTOR": 0.0003,  # Tasa de aprendizaje del actor
@@ -72,14 +63,11 @@ if __name__ == "__main__":
 
     env = make_multi_agent_vect_envs(env=make_env, num_envs=num_envs)
 
-    # Configure the multi-agent algo input arguments
     observation_spaces = [env.single_observation_space(agent) for agent in env.agents]
     action_spaces = [env.single_action_space(agent) for agent in env.agents]
 
-    # Append number of agents and agent IDs to the initial hyperparameter dictionary
     INIT_HP["AGENT_IDS"] = env.agents
 
-    # Mutation config for RL hyperparameters
     hp_config = HyperparameterConfig(
         lr_actor=RLParameter(min=1e-4, max=1e-2),
         lr_critic=RLParameter(min=1e-4, max=1e-2),
@@ -89,8 +77,6 @@ if __name__ == "__main__":
         ),
     )
 
-    # Create a population ready for evolutionary hyper-parameter optimisation
-    # La población ahora se crea con MADDPG
     pop: list[MADDPG] = create_population(
         INIT_HP["ALGO"],
         observation_spaces,
@@ -103,7 +89,6 @@ if __name__ == "__main__":
         device=device,
     )
 
-    # Configure the multi-agent replay buffer
     field_names = ["obs", "action", "reward", "next_obs", "done"]
     memory = MultiAgentReplayBuffer(
         INIT_HP["MEMORY_SIZE"],
@@ -112,7 +97,6 @@ if __name__ == "__main__":
         device=device,
     )
 
-    # Instantiate a tournament selection object (used for HPO)
     tournament = TournamentSelection(
         tournament_size=2,  # Tournament selection size
         elitism=True,  # Elitism in tournament selection
@@ -133,7 +117,6 @@ if __name__ == "__main__":
         device=device,
     )
 
-    # Define training loop parameters
     max_steps = 1_000_000  # Aumentado de 2M para mejor convergencia
     learning_delay = 0  # Pasos antes de comenzar el aprendizaje
     evo_steps = 10_000  # Frecuencia de la evolución
@@ -142,10 +125,8 @@ if __name__ == "__main__":
     elite = pop[0]  # Asignar un agente "élite" placeholder
     total_steps = 0
     
-    # Lista para almacenar pontuações médias para plotagem
     training_scores_history = []
 
-    # TRAINING LOOP
     print("Training...")
     pbar = default_progress_bar(max_steps)
     while np.less([agent.steps[-1] for agent in pop], max_steps).all():
@@ -275,22 +256,17 @@ if __name__ == "__main__":
         for agent in pop:
             agent.steps.append(agent.steps[-1])
 
-    # Save the trained algorithm
     path = "./models/MADDPG" # Cambiar el nombre de la carpeta para MADDPG
     filename = "MADDPG_trained_agent.pt"
     os.makedirs(path, exist_ok=True)
     save_path = os.path.join(path, filename)
     elite.save_checkpoint(save_path)
     
-    # --- PLOTEAR CON PROMEDIO MÓVIL ---
-    # Parámetro de la ventana para el promedio móvil
     SMOOTHING_WINDOW = 50 
     smoothed_scores = smooth_scores(training_scores_history, window=SMOOTHING_WINDOW)
 
     plt.figure(figsize=(12, 6))
-    # Plotear la línea suavizada
     plt.plot(smoothed_scores, linewidth=2, label=f'Promedio Móvil (Ventana={SMOOTHING_WINDOW})') 
-    # Opcional: plotear los puntos brutos en gris claro para contexto
     plt.plot(training_scores_history, alpha=0.3, label='Puntuación Media Bruta')
 
     plt.axhline(y=-60, color='r', linestyle='--', label='Objetivo de Rendimiento (-60)') # Añadir la línea de rendimiento objetivo
@@ -302,12 +278,10 @@ if __name__ == "__main__":
     plt.grid(True, alpha=0.5)
     plt.tight_layout()
     
-    # Salvar el gráfico
     plot_path = os.path.join(path, "training_scores_evolution_smoothed.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"Gráfico de evolución de las puntuaciones suavizado salvado en: {plot_path}")
     
-    # Salvar datos de las puntuaciones en archivo numpy
     scores_data_path = os.path.join(path, "training_scores_history.npy")
     np.save(scores_data_path, np.array(training_scores_history))
     print(f"Datos de las puntuaciones salvados en: {scores_data_path}")
