@@ -106,7 +106,7 @@ Em síntese:
 
 ---
 
-## 4. Conclusão (Atualizada)
+## 4. Conclusão
 
 O novo algoritmo implementado, **MADDPG**, apresentou desempenho superior ao MATD3 no ambiente Speaker-Listener.  
 O objetivo da tarefa foi atingido, pois o MADDPG manteve a pontuação média consistentemente acima de **-60**, com menor volatilidade e melhor estabilidade.
