@@ -73,15 +73,7 @@
 
 ## Training Time
 
-- **Total Steps:** 2,000,000 (unchanged)
+- **Total Steps:** 2,000,000
 - **Expected Duration:** 2-4 hours (depending on GPU)
 - **Checkpoints:** Saved every 5,000 steps (evolution frequency)
 
-## How to Monitor Success
-
-Watch for these positive signs:
-1. ✅ Fitness scores trending upward
-2. ✅ Episode scores improving (getting closer to 0)
-3. ✅ Convergence before 1.5M steps
-4. ✅ Stable training (low variance in scores)
-5. ✅ Final average score > -60
