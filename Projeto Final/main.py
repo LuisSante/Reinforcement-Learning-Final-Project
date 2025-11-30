@@ -4,14 +4,15 @@ Authors: Michael (https://github.com/mikepratt1), Nickua (https://github.com/nic
 """
 
 import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import pandas as pd # Importar pandas para el promedio móvil
 from pettingzoo.mpe import simple_speaker_listener_v4
 from mpe2 import simple_speaker_listener_v4
 
-from agilerl.algorithms import MATD3
+# Cambiar la importación del algoritmo
+from agilerl.algorithms import MADDPG # <--- NUEVO ALGORITMO
 from agilerl.algorithms.core.registry import HyperparameterConfig, RLParameter
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from agilerl.hpo.mutation import Mutations
@@ -22,40 +23,46 @@ from agilerl.utils.utils import (
     make_multi_agent_vect_envs,
 )
 
+# Función para suavizar las puntuaciones con un promedio móvil
+def smooth_scores(scores, window=50):
+    """Calcula el promedio móvil de una lista de puntuaciones."""
+    # Convertir a Series de pandas para usar la función rolling().mean()
+    scores_series = pd.Series(scores)
+    # Calcular el promedio móvil, rellenando los primeros valores con los valores originales
+    # hasta que haya suficientes puntos para el tamaño de la ventana.
+    smoothed = scores_series.rolling(window=window, min_periods=1).mean().tolist()
+    return smoothed
+
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("===== AgileRL Online Multi-Agent Demo =====")
 
     # Define the network configuration
-    # Increased network capacity for better function approximation
+    # Aumentada capacidad de la red para una mejor aproximación de funciones
     NET_CONFIG = {
-        "latent_dim": 128,  # Increased from 64 for better representation learning
+        "latent_dim": 128,  # Aumentado de 64 para mejor aprendizaje de representación
         "encoder_config": {
-            "hidden_size": [128, 128],  # Deeper actor network for complex coordination
+            "hidden_size": [128, 128],  # Red del actor más profunda para coordinación compleja
         },
         "head_config": {
-            "hidden_size": [128, 128],  # Deeper critic network for better value estimation
+            "hidden_size": [128, 128],  # Red del crítico más profunda para una mejor estimación de valor
         },
     }
 
     # Define the initial hyperparameters
-    # Optimized for better performance in Speaker-Listener environment
+    # Optimizado para un mejor rendimiento en el entorno Speaker-Listener
     INIT_HP = {
         "POPULATION_SIZE": 4,
-        "ALGO": "MATD3",  # Algorithm
-        "BATCH_SIZE": 256,  # Increased from 128 for more stable gradient estimates
-        "O_U_NOISE": True,  # Ornstein Uhlenbeck action noise
-        "EXPL_NOISE": 0.2,  # Increased from 0.1 for better exploration
-        "MEAN_NOISE": 0.0,  # Mean action noise
-        "THETA": 0.15,  # Rate of mean reversion in OU noise
-        "DT": 0.01,  # Timestep for OU noise
-        "LR_ACTOR": 0.0003,  # Increased from 0.0001 for faster policy improvement
-        "LR_CRITIC": 0.001,  # Critic learning rate (kept same)
-        "GAMMA": 0.99,  # Increased from 0.95 to value long-term rewards (reaching goal)
-        "MEMORY_SIZE": 100000,  # Max memory buffer size
-        "LEARN_STEP": 50,  # Reduced from 100 for more frequent learning
-        "TAU": 0.005,  # Reduced from 0.01 for slower, more stable target updates
-        "POLICY_FREQ": 2,  # Policy frequency
+        "ALGO": "MADDPG",  # <--- NUEVO ALGORITMO
+        "BATCH_SIZE": 256,  # Aumentado de 128 para estimaciones de gradiente más estables
+        "EXPL_NOISE": 0.1,  # Reducido para MADDPG/TD3-like
+        "LR_ACTOR": 0.0003,  # Tasa de aprendizaje del actor
+        "LR_CRITIC": 0.001,  # Tasa de aprendizaje del crítico
+        "GAMMA": 0.99,  # Aumentado de 0.95 para valorar recompensas a largo plazo (alcanzar el objetivo)
+        "MEMORY_SIZE": 100000,  # Tamaño máximo del buffer de memoria
+        "LEARN_STEP": 50,  # Reducido de 100 para un aprendizaje más frecuente
+        "TAU": 0.005,  # Reducido de 0.01 para actualizaciones de destino más lentas y estables
+        # Parámetros específicos de MATD3 eliminados o ajustados para MADDPG
     }
 
     num_envs = 8
@@ -83,7 +90,8 @@ if __name__ == "__main__":
     )
 
     # Create a population ready for evolutionary hyper-parameter optimisation
-    pop: list[MATD3] = create_population(
+    # La población ahora se crea con MADDPG
+    pop: list[MADDPG] = create_population(
         INIT_HP["ALGO"],
         observation_spaces,
         action_spaces,
@@ -126,15 +134,15 @@ if __name__ == "__main__":
     )
 
     # Define training loop parameters
-    max_steps = 3_000_000  # Increased from 2M for better convergence
-    learning_delay = 0  # Steps before starting learning
-    evo_steps = 10_000  # Evolution frequency
-    eval_steps = None  # Evaluation steps per episode - go until done
-    eval_loop = 1  # Number of evaluation episodes
-    elite = pop[0]  # Assign a placeholder "elite" agent
+    max_steps = 1_000_000  # Aumentado de 2M para mejor convergencia
+    learning_delay = 0  # Pasos antes de comenzar el aprendizaje
+    evo_steps = 10_000  # Frecuencia de la evolución
+    eval_steps = None  # Pasos de evaluación por episodio - ir hasta el final
+    eval_loop = 1  # Número de episodios de evaluación
+    elite = pop[0]  # Asignar un agente "élite" placeholder
     total_steps = 0
     
-    # Lista para armazenar pontuações médias para plotagem
+    # Lista para almacenar pontuações médias para plotagem
     training_scores_history = []
 
     # TRAINING LOOP
@@ -149,6 +157,7 @@ if __name__ == "__main__":
             completed_episode_scores = []
             steps = 0
             for idx_step in range(evo_steps // num_envs):
+                # La función get_action no necesita noise específico de OU si el algoritmo no lo usa (MADDPG solo usa EXPL_NOISE)
                 action, raw_action = agent.get_action(
                     obs=obs, infos=info
                 )  # Predict action
@@ -211,6 +220,7 @@ if __name__ == "__main__":
                         scores[idx] = 0
                         reset_noise_indices.append(idx)
 
+                # Reset noise for the agent. If MADDPG, only the exploration noise is reset.
                 agent.reset_action_noise(reset_noise_indices)
 
             pbar.update(evo_steps // len(pop))
@@ -266,30 +276,41 @@ if __name__ == "__main__":
             agent.steps.append(agent.steps[-1])
 
     # Save the trained algorithm
-    path = "./models/MATD3"
-    filename = "MATD3_trained_agent.pt"
+    path = "./models/MADDPG" # Cambiar el nombre de la carpeta para MADDPG
+    filename = "MADDPG_trained_agent.pt"
     os.makedirs(path, exist_ok=True)
     save_path = os.path.join(path, filename)
     elite.save_checkpoint(save_path)
     
-    # Plotar e salvar a evolução das pontuações
+    # --- PLOTEAR CON PROMEDIO MÓVIL ---
+    # Parámetro de la ventana para el promedio móvil
+    SMOOTHING_WINDOW = 50 
+    smoothed_scores = smooth_scores(training_scores_history, window=SMOOTHING_WINDOW)
+
     plt.figure(figsize=(12, 6))
-    plt.plot(training_scores_history, linewidth=2)
-    plt.title('Evolução das Pontuações Médias Durante o Treinamento', fontsize=14)
-    plt.xlabel('Iterações de Evolução', fontsize=12)
-    plt.ylabel('Pontuação Média da População', fontsize=12)
-    plt.grid(True, alpha=0.3)
+    # Plotear la línea suavizada
+    plt.plot(smoothed_scores, linewidth=2, label=f'Promedio Móvil (Ventana={SMOOTHING_WINDOW})') 
+    # Opcional: plotear los puntos brutos en gris claro para contexto
+    plt.plot(training_scores_history, alpha=0.3, label='Puntuación Media Bruta')
+
+    plt.axhline(y=-60, color='r', linestyle='--', label='Objetivo de Rendimiento (-60)') # Añadir la línea de rendimiento objetivo
+
+    plt.title('Evolución de las Puntuaciones Medias (MADDPG) Durante el Entrenamiento', fontsize=14)
+    plt.xlabel('Iteraciones de Evolución', fontsize=12)
+    plt.ylabel('Pontuação Média de la População', fontsize=12)
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.5)
     plt.tight_layout()
     
-    # Salvar o gráfico
-    plot_path = os.path.join(path, "training_scores_evolution.png")
+    # Salvar el gráfico
+    plot_path = os.path.join(path, "training_scores_evolution_smoothed.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"Gráfico de evolução das pontuações salvo em: {plot_path}")
+    print(f"Gráfico de evolución de las puntuaciones suavizado salvado en: {plot_path}")
     
-    # Salvar dados das pontuações em arquivo numpy
+    # Salvar datos de las puntuaciones en archivo numpy
     scores_data_path = os.path.join(path, "training_scores_history.npy")
     np.save(scores_data_path, np.array(training_scores_history))
-    print(f"Dados das pontuações salvos em: {scores_data_path}")
+    print(f"Datos de las puntuaciones salvados en: {scores_data_path}")
     
     plt.show()
 
